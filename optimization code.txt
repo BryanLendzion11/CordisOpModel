@@ -1,0 +1,332 @@
+#include <stdio.h>
+#include <conio.h>
+#include <fstream>
+#include <ilcplex/ilocplex.h>
+#include "functions.h";
+
+
+using namespace std;
+ILOSTLBEGIN
+
+
+
+int main() {
+
+
+	typedef IloArray<IloNumVarArray> NumVarMatrix;
+	typedef IloArray<NumVarMatrix>   NumVar3Matrix;
+	typedef IloArray<NumVar3Matrix>  NumVarFour;
+	typedef IloArray<NumVarFour>     NumVarFive;
+
+	//sets 
+	const int I = 9; // skus
+	const int J = 3; // facilities
+	const int T = 139; // time periods
+
+
+
+	int* cah = new int[J];
+
+	ifstream file2{ "cah.inc" };
+	if (!file2.is_open()) return -1;
+	for (int j = 0; j < J; ++j) {
+		file2 >> cah[j];
+	}
+
+
+	int* lt = new int[J];
+
+	ifstream file3{ "lt.inc" };
+	if (!file3.is_open()) return -1;
+	for (int j = 0; j < J; ++j) {
+		file3 >> lt[j];
+	}
+
+	double** d = new double* [I];
+	for (int i = 0; i < I; ++i)
+		d[i] = new double[T];
+
+	ifstream file4{ "d.inc" };
+	if (!file4.is_open()) return -1;
+	for (int i = 0; i < I; ++i) {
+		for (int t = 0; t < T; ++t) {
+			file4 >> d[i][t];
+		}
+	}
+
+	double** st = new double* [I];
+	for (int i = 0; i < I; ++i)
+		st[i] = new double[J];
+
+	ifstream file5{ "st.inc" };
+	if (!file5.is_open()) return -1;
+	for (int i = 0; i < I; ++i) {
+		for (int j = 0; j < J; ++j) {
+			file5 >> st[i][j];
+		}
+	}
+
+	double** tco = new double* [I];
+	for (int i = 0; i < I; ++i)
+		tco[i] = new double[J];
+
+	ifstream file6{ "tco.inc" };
+	if (!file6.is_open()) return -1;
+	for (int i = 0; i < I; ++i) {
+		for (int j = 0; j < J; ++j) {
+			file6 >> tco[i][j];
+		}
+	}
+	
+	double** sco = new double* [I];
+	for (int i = 0; i < I; ++i)
+		sco[i] = new double[J];
+
+	ifstream file7{ "sco.inc" };
+	if (!file7.is_open()) return -1;
+	for (int i = 0; i < I; ++i) {
+		for (int j = 0; j < J; ++j) {
+			file7 >> sco[i][j];
+		}
+	}
+
+	int* pco = new int[I];
+
+	ifstream file8{ "pco.inc" };
+	if (!file8.is_open()) return -1;
+	for (int i = 0; i < I; ++i) {
+		file8 >> pco[i];
+	}
+
+	IloEnv env; // create an environment
+	IloModel model(env);  // create a model
+	IloCplex cplex = IloCplex(model);
+
+
+
+
+	//Distance
+	IloNumVar cm(env, -INFINITY, INFINITY, ILOFLOAT, "max");
+
+
+	NumVar3Matrix x(env, I);
+	for (int i = 0; i < I; i++) {
+		x[i] = NumVarMatrix(env, J);
+		for (int j = 0; j < J; j++) {
+			x[i][j] = IloNumVarArray(env, T);
+			for (int t = 0; t < T; t++) {
+				x[i][j][t] = IloNumVar(env, 0, 100000, ILOFLOAT);
+			}
+		}
+	}
+
+	NumVar3Matrix y(env, I);
+	for (int i = 0; i < I; i++) {
+		y[i] = NumVarMatrix(env, J);
+		for (int j = 0; j < J; j++) {
+			y[i][j] = IloNumVarArray(env, T);
+			for (int t = 0; t < T; t++) {
+				y[i][j][t] = IloNumVar(env, 0, 100000, ILOFLOAT);
+			}
+		}
+	}
+
+	
+		
+	
+
+	
+
+	//***********************************************************//
+
+		// add a constraint 3// k and h belong to 0
+	IloExpr z1(env);
+	for (int i = 0; i < I; i++) {
+		for (int j = 0; j < J; j++) {//sizei
+			for (int t = 0; t < T; t++) {//sizei
+				z1 += tco[i][j] * x[i][j][t];
+			}
+		}
+	}
+	
+	IloExpr z2(env);
+	for (int i = 0; i < I; i++) {
+		for (int j = 0; j < J; j++) {//sizei
+			for (int t = 0; t < T; t++) {//sizei
+				z2 += sco[i][j] * y[i][j][t];
+			}
+		}
+	}
+
+	IloExpr z3(env);
+	for (int i = 0; i < I; i++) {		
+			for (int t = lt[0]+lt[1]; t < T; t++) {//sizei
+				z3 += pco[i] * x[i][2][t];
+			}		
+	}
+
+	model.add(
+		cm ==   z3- (z1 + z2)
+	);
+
+	//demand satisfaction
+	for (int i = 0; i < I; i++) {
+		for (int t = lt[2]; t < T; t++) {
+			model.add(x[i][2][t-lt[2]] <= d[i][t]);
+		}
+	}
+
+	// inventory at GRC
+	
+	for (int i = 0; i < I; i++) {		
+		for (int t = 0; t < lt[0]; t++) {
+			model.add(y[i][1][t] == 0);
+		}
+		if (lt[0] > 1) {
+			for (int t = lt[0]; t < T; t++) {
+				model.add(y[i][1][t] == y[i][1][t - 1] + x[i][0][t - lt[0]] - x[i][1][t]);
+			}
+		}
+		else {
+			for (int t = 1; t < T; t++) {
+				model.add(y[i][1][t] == y[i][1][t - 1] + x[i][0][t - lt[0]] - x[i][1][t]);
+			}
+		}
+	}
+		
+		
+			
+	// inventory at LSP	
+	for (int i = 0; i < I; i++) {
+		for (int t = 0; t < lt[0]+ lt[1]; t++) {
+			model.add(y[i][2][t] == 0);
+		}
+		if (lt[1] > 1) {
+			for (int t = lt[1]; t < T; t++) {
+				model.add(y[i][2][t] == y[i][2][t - 1] + x[i][1][t - lt[1]] - x[i][2][t]);
+			}
+		}
+		else {
+			for (int t = 1; t < T; t++) {
+				model.add(y[i][2][t] == y[i][2][t - 1] + x[i][1][t - lt[1]] - x[i][2][t]);
+			}
+		}
+	}
+
+
+	//safety stock
+	for (int i = 0; i < I; i++) {
+		for (int j = 1; j < J; j++) {
+			for (int t = lt[0]+lt[1]; t < T; t++) {
+				model.add(y[i][j][t] > st[i][j]);
+			}
+		}
+	}
+
+	
+		
+
+	//throuhgput capacity
+	for (int i = 0; i < I; i++) {
+		for (int j = 1; j < J; j++) {
+			for (int t = 0; t < T; t++) {
+				model.add(x[i][j][t] <= cah[j]);
+			}
+		}
+	}
+	
+	
+	//relaxionship constrains
+	for (int i = 0; i < I; i++) {		
+			for (int t = 0; t < lt[0]; t++) {
+				model.add(x[i][1][t] == 0);			
+		}
+			for (int t = 0; t < lt[0] + lt[1]; t++) {
+				model.add(x[i][2][t] == 0);
+			}
+	}
+	//model.add(x[0][0][117] == 0);
+	
+
+
+	
+	
+	
+	//objetive function
+	model.add(IloMaximize(env, cm));
+	//cplex.use(restriw(env, y, x, n, m, p));
+	//cplex.use(restri(env, y, x, n, m, p));
+	cplex.setParam(IloCplex::TiLim, 600);
+	cplex.setParam(IloCplex::Threads, 1);
+	cplex.setParam(IloCplex::EpGap, 0.0100);//0.00
+	//cplex.setParam(IloCplex::MIPEmphasis, 1);
+	//cplex.setParam(IloCplex::Cliques, 3);
+	//cplex.setParam(IloCplex::Covers, 3);
+	//cplex.setParam(IloCplex::FracCuts, 2);
+	//cplex.setParam(IloCplex::GUBCovers, 2);
+
+
+	cplex.solve();
+	cplex.getObjValue();
+
+	env.out() << "Total cost " << (double)cplex.getValue(cm) << endl;
+	//env.out() << "w " << (double)cplex.getValue(w) << endl;
+	
+	ofstream ou;
+	ou.open("solx.inc");
+	ou << "sku " << "facility " << "day " <<"qty"<< endl;
+	for (int f = 0; f < I; f++) {
+		for (int i = 0; i < J; i++) {
+		for (int t = 0; t < T; t++) {
+			//cout << f << " " << t << " " << t << endl;
+			//if ((double)cplex.getValue(x[f][i][t] > 0)) {
+				ou << f << " " << i << " " << t<<" "<< (double)cplex.getValue(x[f][i][t]) << endl;
+
+			//}
+		}
+		}
+	}
+	env.out() << endl;
+	
+	ofstream oue;
+	oue.open("soly.inc");
+	oue << "sku " << "facility " << "day " << "qty" << endl;
+	for (int f = 0; f < I; f++) {
+		for (int i = 1; i < J; i++) {
+			for (int t = 0; t < T; t++) {
+				//if ((double)cplex.getValue(y[f][i][t] > 0.0)) {
+					oue <<  f << " " <<i<<" "<<t<<" "<< (double)cplex.getValue(y[f][i][t]) << endl;
+			//	}
+			}
+		}
+	}
+	env.out() << endl;
+
+	/*
+
+	
+
+	
+
+	ofstream oueq;
+	oueq.open("cosol.inc");	
+	ou << "city " << "day " << "qty" << endl;
+	for (int f = 0; f < J; f++) {
+		//for (int i = 0; i < J; i++) {
+		for (int t = 0; t < T; t++) {
+			if ((double)cplex.getValue(w[f][t] > 0.0)) {
+				oueq << f << " " << t << " " <<  (double)cplex.getValue(w[f][t]) << endl;
+
+			}
+		}
+		//}
+	}
+	env.out() << endl;
+	*/
+
+
+	env.out() << endl;
+	env.end(); // destroy the environment (to free memory)
+
+
+}
